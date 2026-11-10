@@ -1,0 +1,296 @@
+---
+title: "FIFA2026"
+author: Mitchell K Meldrum
+format: pdf
+editor: visual
+---
+
+## Import Data set and remove unnecessary values
+
+Data sourced from Mominul Islam's FIFA-World_Cup-2026-Dataset found [here](https://github.com/mominullptr/FIFA-World-Cup-2026-Dataset/tree/main)
+
+```{r}
+#Imported libraries
+library(sqldf)
+library(tidyverse)
+library(stringr)
+
+#Only load necessary data
+matches <- read_csv("https://github.com/mominullptr/FIFA-World-Cup-2026-Dataset/raw/refs/heads/main/matches.csv")
+teams <- read_csv("https://github.com/mominullptr/FIFA-World-Cup-2026-Dataset/raw/refs/heads/main/teams.csv")
+stats <- read_csv("https://github.com/mominullptr/FIFA-World-Cup-2026-Dataset/raw/refs/heads/main/player_stats.csv")
+refs <- read_csv("https://github.com/mominullptr/FIFA-World-Cup-2026-Dataset/raw/refs/heads/main/referees.csv")
+events <- read_csv("https://github.com/mominullptr/FIFA-World-Cup-2026-Dataset/raw/refs/heads/main/match_events.csv")
+
+#Remove unwanted columns, this dataset is insanely in depth
+str(matches)
+tidy_match <- matches |> 
+  select(
+    match_id,
+    home_team_id,
+    away_team_id,
+    referee_id
+  )
+
+str(teams)
+tidy_team <- teams |> 
+  select(
+    team_id,
+    team_name
+  )
+
+str(events)
+tidy_events <- events |> 
+  select(
+    event_id,
+    match_id,
+    event_type,
+    player_id,
+    team_id)
+
+str(refs)
+tidy_refs <- refs |>
+  select(
+    referee_id,
+    name
+  )
+```
+
+```{r}
+#Unpivot the matches table for separate home and away team columns
+matches_long <- tidy_match |>
+  pivot_longer(
+    cols = c(home_team_id, away_team_id),
+    names_to = "home_away",
+    values_to = "team_id"
+  )
+head(matches_long, 50)
+
+head(tidy_events, 200)
+
+#Filter events for only red and yellow cards
+tidy_events <- filter(tidy_events, event_type == "Red Card" | event_type == "Yellow Card")
+head(tidy_events |> arrange(match_id), 200)
+```
+
+# Combine into one df
+
+```{r}
+#Select just the match id, home team, away team, and events
+combined <- sqldf("
+  select m.match_id, e.team_id, e.event_type
+  from tidy_match m
+  inner join tidy_team t
+  on m.home_team_id = t.team_id
+  inner join tidy_events e
+  on t.team_id = e.team_id
+")
+```
+
+```{r}
+#Check the work
+str(combined)
+head(combined, 100)
+```
+
+```{r}
+#Check the sum of all yellow and red cards
+table(combined$event_type)
+```
+
+### Looking at a paltry 76 yellow cards and 27 red cards for the whole tournament tells us the data set is missing some important info and is incomplete.
+
+### So, I found the website FBREF and got the data there instead. They have a very robust system for selecting data so I was able to select only what was needed. Data can be found at [this link](https://fbref.com/en/comps/1/misc/World-Cup-Stats?sr&utm_source=direct&utm_medium=Share&utm_campaign=ShareTool#stats_squads_misc_against) 
+
+```{r}
+data <- "
+Squad,90s,CrdY,CrdR,2CrdY
+dz vs Algeria,4.0,2,0,0
+ar vs Argentina,9.0,14,1,1
+au vs Australia,4.3,7,0,0
+at vs Austria,4.0,2,0,0
+be vs Belgium,6.3,10,0,0
+ba vs Bosnia–Herz,4.0,4,1,0
+br vs Brazil,5.0,7,0,0
+cv vs Cabo Verde,4.3,7,0,0
+ca vs Canada,5.0,9,2,0
+co vs Colombia,5.3,8,0,0
+cd vs Congo DR,4.0,8,0,0
+ci vs Côte d'Ivoire,4.0,4,0,0
+hr vs Croatia,4.0,3,0,0
+cw vs Curaçao,3.0,2,0,0
+cz vs Czechia,3.0,4,0,0
+ec vs Ecuador,4.0,9,0,0
+eg vs Egypt,5.3,8,0,0
+eng vs England,8.3,10,0,0
+fr vs France,8.0,4,0,0
+de vs Germany,4.3,6,0,0
+gh vs Ghana,4.0,6,0,0
+ht vs Haiti,3.0,4,0,0
+ir vs IR Iran,3.0,4,1,0
+iq vs Iraq,3.0,2,0,0
+jp vs Japan,4.0,7,0,0
+jo vs Jordan,3.0,2,0,0
+kr vs Korea Republic,3.0,1,0,0
+mx vs Mexico,5.0,11,4,0
+ma vs Morocco,6.3,10,0,0
+nl vs Netherlands,4.3,4,0,0
+nz vs New Zealand,3.0,2,0,0
+no vs Norway,6.3,3,0,0
+pa vs Panama,3.0,3,0,0
+py vs Paraguay,5.3,10,0,0
+pt vs Portugal,5.0,6,0,0
+qa vs Qatar,3.0,3,0,0
+sa vs Saudi Arabia,3.0,1,0,0
+sct vs Scotland,3.0,4,0,0
+sn vs Senegal,4.3,4,1,0
+za vs South Africa,4.0,5,1,0
+es vs Spain,8.3,20,2,1
+se vs Sweden,4.0,2,0,0
+ch vs Switzerland,6.7,13,1,0
+tn vs Tunisia,3.0,0,0,0
+tr vs Türkiye,3.0,2,1,0
+uy vs Uruguay,3.0,4,0,0
+us vs USA,5.0,11,0,0
+uz vs Uzbekistan,3.0,5,0,0"
+data_own <- "
+Squad,# Pl,90s,CrdY,CrdR,2CrdY
+dz Algeria,22,4.0,3,0,0
+ar Argentina,24,9.0,15,1,1
+au Australia,23,4.3,5,0,0
+at Austria,20,4.0,5,0,0
+be Belgium,23,6.3,6,1,0
+ba Bosnia–Herz,23,4.0,7,1,0
+br Brazil,22,5.0,8,0,0
+cv Cabo Verde,21,4.3,5,0,0
+ca Canada,22,5.0,11,0,0
+co Colombia,21,5.3,8,0,0
+cd Congo DR,21,4.0,6,0,0
+ci Côte d'Ivoire,22,4.0,4,0,0
+hr Croatia,19,4.0,4,0,0
+cw Curaçao,22,3.0,7,0,0
+cz Czechia,21,3.0,1,0,0
+ec Ecuador,21,4.0,8,1,0
+eg Egypt,21,5.3,12,0,0
+eng England,24,8.3,8,1,0
+fr France,22,8.0,6,0,0
+de Germany,23,4.3,3,0,0
+gh Ghana,22,4.0,6,0,0
+ht Haiti,18,3.0,7,0,0
+ir IR Iran,20,3.0,6,0,0
+iq Iraq,25,3.0,4,1,0
+jp Japan,24,4.0,4,0,0
+jo Jordan,20,3.0,4,0,0
+kr Korea Republic,20,3.0,4,0,0
+mx Mexico,25,5.0,4,1,0
+ma Morocco,23,6.3,7,0,0
+nl Netherlands,22,4.3,3,0,0
+nz New Zealand,17,3.0,4,0,0
+no Norway,25,6.3,3,0,0
+pa Panama,20,3.0,5,0,0
+py Paraguay,24,5.3,9,1,0
+pt Portugal,22,5.0,7,0,0
+qa Qatar,22,3.0,4,2,0
+sa Saudi Arabia,18,3.0,6,0,0
+sct Scotland,20,3.0,5,0,0
+sn Senegal,22,4.3,3,0,0
+za South Africa,19,4.0,5,2,0
+es Spain,22,8.3,6,0,0
+se Sweden,22,4.0,5,0,0
+ch Switzerland,23,6.7,8,1,1
+tn Tunisia,20,3.0,1,0,0
+tr Türkiye,23,3.0,2,0,0
+uy Uruguay,17,3.0,5,1,0
+us USA,24,5.0,7,1,0
+uz Uzbekistan,23,3.0,4,0,0
+"
+
+#For the opponent Fairness Score Calculation
+df_op <- read_csv(data)
+fair_op_df <- df_op |> mutate(
+  fairness = `CrdY`*-1 + `CrdR`*-4 + `2CrdY`*-3)
+fair_op_playtime_df <- fair_op_df |> mutate(
+  fair_playtime = fairness/`90s`
+)
+fairness_opponent_FIFA26 <- fair_op_playtime_df |> 
+  arrange(fair_playtime)
+
+#For own team Fairness Score Calculation
+df_own <- read_csv(data_own)
+fair_own_df <- df_own |> mutate(
+  fairness = `CrdY`*-1 + `CrdR`*-4 + `2CrdY`*-3)
+fair_own_playtime_df <- fair_own_df |> mutate(
+  fair_playtime = fairness/`90s`
+)
+fairness_own_FIFA26 <- fair_own_playtime_df |> 
+  arrange(fair_playtime)
+
+head(fairness_opponent_FIFA26, 50)
+head(fairness_own_FIFA26, 50)
+```
+
+```{r}
+#Plot and run z score test on VS Fairness
+hist(fairness_opponent_FIFA26$fair_playtime)
+analysis_vs <- fairness_opponent_FIFA26 |> mutate(
+  fair_mean = mean(fair_playtime),
+  fair_sd = sd(fair_playtime),
+  fair_z = fair_playtime - fair_mean/fair_sd
+) |> 
+  arrange(fair_z)
+head(analysis_vs)
+
+#Plot and run analysis on Own Fairness
+hist(fairness_own_FIFA26$fair_playtime)
+analysis_own <- fairness_own_FIFA26 |> mutate(
+  fair_mean = mean(fair_playtime),
+  fair_sd = sd(fair_playtime),
+  fair_z = fair_playtime - fair_mean/fair_sd
+) |> 
+  arrange(fair_z)
+head(analysis_own)
+```
+
+```{r}
+#Calculate difference between own fairness and opponents
+comparison <- fairness_own_FIFA26 |> 
+  mutate(
+    difference = fairness_opponent_FIFA26$fair_playtime - fairness_own_FIFA26$fair_playtime
+  ) |> select(
+    Squad, fair_playtime,  difference
+  ) |> arrange(
+    difference
+  )
+head(comparison, 50)
+
+#Plot it and run Z Score Test
+hist(comparison$difference, breaks=50)
+analysis_comparison <- comparison |> mutate(
+  fair_mean = mean(difference),
+  fair_sd = sd(difference),
+  fair_z = difference - fair_mean/fair_sd
+) |> 
+  arrange(fair_z, desc=FALSE)
+head(analysis_comparison, 50)
+```
+
+```{r}
+#Remove vs and combine datasets
+analysis_vs <- analysis_vs |> 
+  mutate(Squad = str_remove_all(Squad, "vs "))
+head(analysis_vs, 50)
+
+#SQL For Joining all 3 data frames for different metric, own fairness, vs fairness, z scores, and sorting by the fairness difference
+Final_FIFA_Fair_MM <- sqldf("
+SELECT ao.Squad, c.difference, c.fair_z AS Diff_Fair_Z, ao.fair_playtime AS Own_Fair_Adj, ao.fair_z AS Own_Fair_Z, av.fair_playtime AS VS_Fair_Adj, av.fair_z AS VS_Fair_Z
+FROM analysis_own ao INNER JOIN analysis_vs av
+ON ao.Squad = av.Squad
+INNER JOIN analysis_comparison c ON ao.Squad = c.Squad
+ORDER BY Diff_Fair_Z")
+head(Final_FIFA_Fair_MM, 50)
+```
+
+```{r}
+#Export the csv
+write_csv(Final_FIFA_Fair_MM, "Final_FIFA_Fairness_MM.csv")
+```
